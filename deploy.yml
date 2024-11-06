@@ -1,0 +1,62 @@
+name: CI/CD for Wisecow Application
+
+on:
+  push:
+    branches:
+      - main  # Trigger on push to main branch
+  pull_request:
+    branches:
+      - main  # Trigger on pull request to main branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Cache Docker layers
+      uses: actions/cache@v2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      run: |
+        docker build -t your-dockerhub-username/wisecow:${{ github.sha }} .
+        docker push your-dockerhub-username/wisecow:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v1
+
+    - name: Configure kubectl
+      run: |
+        kubectl config set-cluster <cluster-name> --server=https://<api-server-url> --certificate-authority=<ca-file-path>
+        kubectl config set-credentials <user-name> --token=${{ secrets.K8S_TOKEN }}
+        kubectl config set-context <context-name> --cluster=<cluster-name> --user=<user-name>
+        kubectl config use-context <context-name>
+
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl set image deployment/wisecow-deployment wisecow=your-dockerhub-username/wisecow:${{ github.sha }}
+        kubectl rollout status deployment/wisecow-deployment
